@@ -2,23 +2,24 @@ import pandas as pd
 import numpy as np
 from scipy.spatial.distance import hamming
 
-#=======================================================================================================================
-# CONDITIONAL DISTRIBUTION P(TARGET|KEY)
-#
-# Inputs:
-# - data: The original dataset (DataFrame)
-# - syn_data: Synthetic data generated from the original data (DataFrame)
-# - key: Conditioning columns (list[str] or str)
-# - target: Target columns containing sensitive information (list[str] or str)
-# - imputation: Type of imputation method for unmatched keys (None or str)
-#
-# Kwargs:
-# - neighborhood: The number of neighbors to consider for "appr" imputation (int)
-#
-# Outputs:
-# - cond_dist1: Conditional distribution of the original dataset (DataFrame)
-# - cond_dist2: Conditional distribution of the synthetic dataset (DataFrame)
-#=======================================================================================================================
+"""
+CONDITIONAL DISTRIBUTION P(TARGET|KEY)
+
+Args:
+ - data (pd.DataFrame): The original dataset.
+ - syn_data (pd.DataFrame): Synthetic data generated from the original data. 
+ - key (list[str] or str): Column(s) used as conditioning variables.
+ - target (list[str] or str): Target column(s) containing sensitive information.
+ - imputation (str, optional): Type of imputation method for unmatched keys. 
+                               Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
+
+Kwargs:
+ - neighborhood (int): Number of neighbors to consider for "appr" imputation.
+
+Returns:
+ - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset 
+ - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset 
+"""
 
 def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs)
     nrow1 = len(data)
