@@ -11,6 +11,8 @@ from scipy.spatial.distance import hamming
 # - key: Conditioning columns (list[str] or str)
 # - target: Target columns containing sensitive information (list[str] or str)
 # - imputation: Type of imputation method for unmatched keys (None or str)
+#
+# Kwargs:
 # - neighborhood: The number of neighbors to consider for "appr" imputation (int)
 #
 # Outputs:
@@ -18,7 +20,7 @@ from scipy.spatial.distance import hamming
 # - cond_dist2: Conditional distribution of the synthetic dataset (DataFrame)
 #=======================================================================================================================
 
-def compute_conditional_distributions(data, syn_data, key, target, imputation = None, neighborhood = None)
+def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs)
     nrow1 = len(data)
     concat_data = pd.concat([data, syn_data], axis = 0)
 
@@ -76,6 +78,14 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
             return cond_dist1, cond_dist2
 
         elif imputation == "appr":
+            neighborhood = kwargs.get('neighborhood')
+            
+            if neighborhood is None:
+                neighborhood = 1
+                warnings.warn("For 'appr imputation', a 'neighborhood' value was not provided. "
+                              "Using default value of 1.", 
+                              stacklevel = 2)
+                
             for k in unmatched_keys:
                 impute_indices = np.where(cond_dist2["composite_key"]==k)[0]
 
