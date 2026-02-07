@@ -17,8 +17,8 @@ Kwargs:
  - neighborhood (int): Number of neighbors to consider for "appr" imputation.
 
 Returns:
- - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset 
- - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset 
+ - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset.
+ - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset. 
 """
 
 def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs)
