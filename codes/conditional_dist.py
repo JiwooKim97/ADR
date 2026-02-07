@@ -6,15 +6,15 @@ from scipy.spatial.distance import hamming
 CONDITIONAL DISTRIBUTION P(TARGET|KEY)
 
 Args:
- - data (pd.DataFrame): The original dataset.
+ - data (pd.DataFrame): The original dataset containing sensitive information.
  - syn_data (pd.DataFrame): Synthetic data generated from the original data. 
- - key (list[str] or str): Column(s) used as conditioning variables.
+ - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
  - target (list[str] or str): Target column(s) containing sensitive information.
- - imputation (str, optional): Type of imputation method for unmatched keys. 
+ - imputation (str, optional): Method for handling unmatched keys. 
                                Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
 
 Kwargs:
- - neighborhood (int): Number of neighbors to consider for "appr" imputation.
+ - neighborhood (int): Number of neighbors to consider for "appr" imputation (Default: 1).
 
 Returns:
  - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset.
