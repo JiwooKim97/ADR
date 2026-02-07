@@ -3,12 +3,10 @@ import numpy as np
 import pandas as pd
 from scipy.stats import wasserstein_distance as w_dist
 
-################################################################################################
-## Risk Functions (similarity-based / prediction-accuracy-based / taks-oriented )
-################################################################################################
 
-## Similarity-based risk functions
-
+# -------------------------------------------------------------------------------------------------
+# Similarity-Based Risk Functions
+# -------------------------------------------------------------------------------------------------
 def inner_product_similarity(p1, p2, **kwargs):
     return np.sum(p1*p2)
 
@@ -74,8 +72,9 @@ def wasserstein_distance(p1, p2, **kwargs):
     return np.exp(-alpha*w_dist(p1, p2))
 
 
-## prediction-accuracy-based risk functions
-
+# -------------------------------------------------------------------------------------------------
+# Prediction-Accuracy-Based Risk Functions
+# -------------------------------------------------------------------------------------------------
 def accuracy(key_df1, mode2, **kwargs):
     return key_df1.loc[key_df1["composite_target"] == mode2, "cond_prob"].item()
 
@@ -88,8 +87,9 @@ def mode_similarity(mode1, mode2, **kwargs):
     return 1.0 if mode1 == mode2 else 0.0
 
 
-## task-oriented risk functions
-
+# -------------------------------------------------------------------------------------------------
+# Task-Oriented Risk Functions
+# -------------------------------------------------------------------------------------------------
 def precision(cond_dist1, key_df1, mode2, **kwargs):
     positive_target_value = kwargs.get('positive_target_value')
 
@@ -123,12 +123,10 @@ def recall(cond_dist1, key_df1, mode2, **kwargs):
 
 
 
-################################################################################################
-## Weight Functions (prevalence-based / concentration-based)
-################################################################################################
 
-## prevalence-based weights
-
+# -------------------------------------------------------------------------------------------------
+# Prevalence-Based Weights
+# -------------------------------------------------------------------------------------------------
 def weight_key_proportion1(cond_dist1, key_df1, **kwargs):
     total_counts = np.sum(cond_dist1["count"])
     key_counts = np.sum(key_df1["count"])
@@ -188,8 +186,9 @@ def weight_precision(key, cond_dist1, key_df1, best_targets_df, **kwargs):
             return key_counts / total_counts
 
 
-## concentration-based weights
-
+# -------------------------------------------------------------------------------------------------
+# Concentration-Based Weights
+# -------------------------------------------------------------------------------------------------
 def negentropy(cond_dist1, p1, normalize, **kwargs):
     if not np.isclose(np.sum(p1), 1, atol = 1e-9):
         raise ValueError("The sum of probabilities must be 1.")
