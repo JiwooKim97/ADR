@@ -149,7 +149,7 @@ def weight_key_proportion2(cond_dist2, key_df2, c = None, **kwargs):
         return key_counts / total_counts
 
 
-def weight_tcap(key, con_dist2, key_df2, deterministic_keys2, **kwargs):
+def weight_tcap(key, cond_dist2, key_df2, deterministic_keys2, **kwargs):
     if not deterministic_keys2:
         return 0.0
     else:
