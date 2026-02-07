@@ -3,25 +3,31 @@ import pandas as pd
 import numpy as np
 from conditional_dist import compute_conditional_distributions
 
-#=======================================================================================================================
-# A UNIFIED FRAMEWORK FOR ATTRIBUTE DISCLOSURE RISK (ADR) 
-#
-# Inputs:
-# - data: Original dataset (DataFrame)
-# - syn_data: Synthetic data generated from the original data (DataFrame)
-# - key: Conditioning columns (list[str] or str)
-# - target: Target columns containing sensitive information (list[str] or str)
-# - risk: Risk function for measuring ADR (str)
-# - weight: Weight function for measuring ADR (str)
-# - risk_imputation: Type of imputation for unmatched keys (None or str)
-# - normalize: Whether to normalize concentration-based weight functions (bool)
-# - show_all: Whether to return individual key-level values or only the final ADR (bool)
-#
-# Outputs:
-# - ADR_score: The final aggregated ADR value (float)
-# - score_df: Detailed results for each key, returned when show_all is True (DataFrame or None)
-#=======================================================================================================================
+"""
+A UNIFIED FRAMEWORK FOR ATTRIBUTE DISCLOSURE RISK (ADR)
 
+Args:
+ - data (pd.DataFrame): The original dataset containing sensitive information.
+ - syn_data (pd.DataFrame): Synthetic data generated from the original data.
+ - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
+ - target (list[str] or str): Target column(s) containing sensitive information.
+ - risk (str): Risk function used for measuring ADR.
+ - weight (str): Weight function used for aggregating individual key risks.
+ - imputation (str, optional): Method for handling unmatched keys. 
+                               Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
+ - normalize (bool, optional): Whether to normalize concentration-based weight functions.
+ - show_all (bool, optional): Whether to return individual key-level results.
+
+Kwargs:
+ - neighborhood (int): Number of neighbors to consider for 'appr' imputation (Default: 1).
+ - alpha (float): A positive value required for calculating 'KL_divergence' and 'wasserstein_distance' risk functions (Default: 1.0).
+ - positive_target_value: The specific target value required for 'precision' and 'recall'  risk functions, as well as the 'weight_precision' weight function. 
+                          (Default: the least frequent target among all composite targets).
+
+Returns:
+ - ADR_score (float): The final aggregated Attribute Disclosure Risk value.
+ - score_df (pd.DataFrame, optional): If True, returns a detailed results for each key.
+"""
 
 class ADR:
     def __init__(self, 
