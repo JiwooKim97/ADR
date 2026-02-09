@@ -177,7 +177,7 @@ class ADR:
                 self.score_df.append({"key": k, "score": score})
 
         # -------------------------------------------------------------------------------------------------
-        # Only Synthetic Keys
+        # Synthetic-only Keys
         # -------------------------------------------------------------------------------------------------
         for key in only_syn_keys:
             score = 0.0
@@ -187,7 +187,7 @@ class ADR:
                 self.score_df.append({"key": key, "score": self.score})
 
         # -------------------------------------------------------------------------------------------------
-        # Only Original Keys
+        # Original-only Keys
         # -------------------------------------------------------------------------------------------------
         if self.imputation == "discard":
             if intersection_weight_sum > 0:
