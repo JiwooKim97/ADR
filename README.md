@@ -7,7 +7,7 @@ This is a Python implementation of the Attribute Disclosure Risk (ADR) framework
 The code is compatible with:
  - `pytorch 0.4.0`
 
-## Run Experiments
+## Run Experiment
 
 You can find demo resources in the `demo/` directory. This folder includes:
 * **Demo Data**: Sample datasets to illustrate the ADR calculation process.
