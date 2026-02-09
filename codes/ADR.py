@@ -177,15 +177,25 @@ class ADR:
                 self.score_df.append({"key": k, "score": score})
 
         # -------------------------------------------------------------------------------------------------
+        # Only Synthetic Keys
+        # -------------------------------------------------------------------------------------------------
+        for key in only_syn_keys:
+            score = 0.0
+            self.ADR_score += score
+
+            if self.show_all:
+                self.score_df.append({"key": key, "score": self.score})
+
+        # -------------------------------------------------------------------------------------------------
         # Only Original Keys
         # -------------------------------------------------------------------------------------------------
         if self.imputation == "discard":
             if intersection_weight_sum > 0:
-                self.ADR_score = self.ADR_score / intersection_weight_sum
+                self.ADR_score /= intersection_weight_sum
                 
                 if self.show_all:
                     for res in self.score_df:
-                        res["score"] = res["score"] / intersection_weight_sum
+                        res["score"] /= intersection_weight_sum
                         
                     for k in only_orig_keys:
                         self.score_df.append({"key": k, "score": 0.0})
@@ -215,15 +225,7 @@ class ADR:
                 
                 if self.show_all:
                     self.score_df.append({"key": k, "score": score})
-            
-      
 
-        # for key in only_syn_keys:
-        #     self.score = 0.0
-        #     self.ADR_score += self.score
-
-        #     if self.show_all:
-        #         self.key_score.append({"key": key, "score": self.score})
 
         if self.show_all:
             self.score_df = pd.DataFrame(self.score_df)
