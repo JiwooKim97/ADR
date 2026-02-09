@@ -1,3 +1,4 @@
+import warnings
 import pandas as pd
 import numpy as np
 from scipy.spatial.distance import hamming
@@ -21,7 +22,7 @@ Returns:
  - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset. 
 """
 
-def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs)
+def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs):
     nrow1 = len(data)
     concat_data = pd.concat([data, syn_data], axis = 0)
 
