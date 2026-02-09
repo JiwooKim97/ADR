@@ -5,7 +5,7 @@ This is a Python implementation of the Attribute Disclosure Risk (ADR) framework
 ## Requirements
 
 The code is compatible with:
- - `pytorch 0.4.0`
+ - `python 3.12`
 
 ## Run Experiment
 
