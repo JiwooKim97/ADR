@@ -208,7 +208,7 @@ class ADR:
 
         
         elif self.imputation == "zero_risk":
-            if show_all:
+            if self.show_all:
                 for k in only_orig_keys:
                     self.score_df.append({"key": k, "score": 0.0})
                     
