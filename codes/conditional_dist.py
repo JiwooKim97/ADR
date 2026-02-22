@@ -2,27 +2,31 @@ import warnings
 import pandas as pd
 import numpy as np
 from scipy.spatial.distance import hamming
+from scipy.spatial.distance import cdist
 
-"""
-CONDITIONAL DISTRIBUTION P(TARGET|KEY)
-
-Args:
- - data (pd.DataFrame): The original dataset containing sensitive information.
- - syn_data (pd.DataFrame): Synthetic data generated from the original data. 
- - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
- - target (list[str] or str): Target column(s) containing sensitive information.
- - imputation (str, optional): Method for handling unmatched keys. 
-                               Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
-
-Kwargs:
- - neighborhood (int): Number of neighbors to consider for "appr" imputation (Default: 1).
-
-Returns:
- - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset.
- - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset. 
-"""
 
 def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs):
+    
+    """
+    Computes the conditional distribution of the target variables given key variables, 
+    denoted as $P(\text{TARGET} \mid \text{KEY})$, for both original and synthetic datasets.
+    
+    Args:
+     - data (pd.DataFrame): The original dataset containing sensitive information.
+     - syn_data (pd.DataFrame): Synthetic data generated from the original data. 
+     - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
+     - target (list[str] or str): Target column(s) containing sensitive information.
+     - imputation (str, optional): Method for handling unmatched keys. 
+                                   Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
+    
+    Kwargs:
+     - neighborhood (int): Number of neighbors to consider for "appr" imputation (Default: 1).
+    
+    Returns:
+     - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset.
+     - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset. 
+    """
+    
     nrow1 = len(data)
     concat_data = pd.concat([data, syn_data], axis = 0)
 
@@ -64,20 +68,18 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
     
     
     cond_dist1 = pd.DataFrame({"count": counts1.ravel(), "cond_prob": cond_prob1.ravel()}, index=all_idx).reset_index()
-    
-    if imputation is not None:
-        cond_dist2 = pd.DataFrame({"count": counts2.ravel(), "cond_prob": cond_prob2.ravel(), "imputed_prob": cond_prob2.ravel()}, index=all_idx).reset_index()
-        if imputation == "naive":
-            for k in unmatched_keys:
-                impute_indices = np.where(cond_dist2["composite_key"]==k)[0]
-                
-                total_count = cond_dist2["count"].sum()
-                target_sums = cond_dist2.groupby("composite_target")["count"].sum()
-                naive_probs = target_sums / total_count
+    cond_dist2 = pd.DataFrame({"count": counts2.ravel(), "cond_prob": cond_prob2.ravel()}, index=all_idx).reset_index()
 
-                cond_dist2.loc[impute_indices, "imputed_prob"] = cond_dist2.loc[impute_indices, 'composite_target'].map(naive_probs)
-                     
-            return cond_dist1, cond_dist2
+    if imputation in ["naive", "appr"]:
+        cond_dist2["imputed_prob"] = cond_dist2["cond_prob"]
+                
+        if imputation == "naive":
+            total_count = cond_dist2["count"].sum()
+            target_sums = cond_dist2.groupby("composite_target")["count"].transform("sum")
+            naive_probs = target_sums / total_count
+
+            mask = cond_dist2["composite_key"].isin(unmatched_keys)
+            cond_dist2.loc[mask, "imputed_prob"] = naive_probs[mask]         
 
         elif imputation == "appr":
             neighborhood = kwargs.get('neighborhood')
@@ -87,32 +89,53 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
                 warnings.warn("For 'appr imputation', a 'neighborhood' value was not provided. "
                               "Using default value of 1.", 
                               stacklevel = 2)
-                
+            
+            total_count = cond_dist2["count"].sum()
+            probs = cond_dist2.groupby("composite_key")["count"].sum() / total_count
+
+            
+            unique_keys = cond_dist2["composite_key"].unique()
+            split_keys = np.array([k.split('_') for k in unique_keys])
+
+            encoded_keys = np.zeros(split_keys.shape, dtype=int)
+            for col in range(split_keys.shape[1]):
+                encoded_keys[:, col] = pd.factorize(split_keys[:, col])[0]
+            
+            dist_matrix = cdist(encoded_keys, encoded_keys, metric='hamming') * split_keys.shape[1]
+
+            key_to_idx = {key: i for i, key in enumerate(unique_keys)}
+
+            imputation_map = {}
+
             for k in unmatched_keys:
-                impute_indices = np.where(cond_dist2["composite_key"]==k)[0]
+                if k not in key_to_idx: 
+                    continue   
 
-                total_count = cond_dist2["count"].sum()
-                key_sums = cond_dist2.groupby("composite_key")["count"].sum()
-                probs = key_sums / total_count
-
-                cond_dist2['distance'] = cond_dist2['composite_key'].apply(
-                    lambda x: hamming(x.split("_"), k.split("_")) * len(k.split("_")))
-                neighbor_dist = cond_dist2[(0 < cond_dist2.distance) & (cond_dist2.distance <= neighborhood)]
-                neighbor_keys = np.unique(neighbor_dist.composite_key)
-                multiplier = probs[neighbor_keys] / np.sum(probs[neighbor_keys])
-
-                appr_probs = neighbor_dist.groupby("composite_target")["cond_prob"].apply(lambda x: np.sum(x * multiplier.to_numpy()))
+                k_idx = key_to_idx[k]
+                dists = dist_matrix[k_idx]
                 
-                cond_dist2.loc[impute_indices, 'imputed_prob'] = cond_dist2.loc[impute_indices, 'composite_target'].map(appr_probs)
+                neighbor_mask = (dists > 0) & (dists <= neighborhood)
+                neighbor_keys = unique_keys[neighbor_mask]
+                
+                if len(neighbor_keys) == 0: 
+                    continue
 
-                cond_dist2.drop(["distance"], axis = 1, inplace = True)
+                p_neighbors = probs[neighbor_keys]
+                multiplier = p_neighbors / p_neighbors.sum()
+                
+                neighbor_data = cond_dist2[cond_dist2["composite_key"].isin(neighbor_keys)].copy()
+                neighbor_data['weight'] = neighbor_data['composite_key'].map(multiplier)
+                
+                neighbor_data['weighted_prob'] = neighbor_data['cond_prob'] * neighbor_data['weight']
+                appr_probs = neighbor_data.groupby("composite_target")['weighted_prob'].sum()
+                
+                imputation_map[k] = appr_probs
+                
+            for k, appr_probs in imputation_map.items():
+                mask = cond_dist2["composite_key"] == k
+                cond_dist2.loc[mask, 'imputed_prob'] = cond_dist2.loc[mask, 'composite_target'].map(appr_probs)
 
-            return cond_dist1, cond_dist2
-        
-        else:
-            cond_dist2 = pd.DataFrame({"count": counts2.ravel(), "cond_prob": cond_prob2.ravel()}, index=all_idx).reset_index()
-            return cond_dist1, cond_dist2
+    return cond_dist1, cond_dist2
+                
 
-    else:
-        cond_dist2 = pd.DataFrame({"count": counts2.ravel(), "cond_prob": cond_prob2.ravel()}, index=all_idx).reset_index()
-        return cond_dist1, cond_dist2
+                
