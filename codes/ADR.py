@@ -1,46 +1,43 @@
 import risk_weight_fns as rwf
 import pandas as pd
 import numpy as np
+import time
 from conditional_dist import compute_conditional_distributions
 
-"""
-A UNIFIED FRAMEWORK FOR ATTRIBUTE DISCLOSURE RISK (ADR)
-
-Args:
- - data (pd.DataFrame): The original dataset containing sensitive information.
- - syn_data (pd.DataFrame): Synthetic data generated from the original data.
- - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
- - target (list[str] or str): Target column(s) containing sensitive information.
- - risk (str): Risk function used for measuring ADR.
- - weight (str): Weight function used for aggregating individual key risks.
- - imputation (str, optional): Method for handling unmatched keys. 
-                               Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
- - normalize (bool, optional): Whether to normalize concentration-based weight functions.
- - show_all (bool, optional): Whether to return individual key-level results.
-
-Kwargs:
- - neighborhood (int): Number of neighbors to consider for 'appr' imputation (Default: 1).
- - alpha (float): A positive value required for calculating 'KL_divergence' and 'wasserstein_distance' risk functions (Default: 1.0).
- - positive_target_value: The specific target value required for 'precision' and 'recall'  risk functions, as well as the 'weight_precision' weight function. 
-                          (Default: the least frequent target among all composite targets).
-
-Returns:
- - ADR_score (float): The final aggregated Attribute Disclosure Risk value.
- - score_df (pd.DataFrame, optional): If True, returns a detailed results for each key.
-"""
 
 class ADR:
     def __init__(self, 
-                 data,
+                 data, 
                  syn_data, 
                  key, 
                  target, 
                  risk = "inner_product_similarity", 
-                 weight = "weight_key_proportion1", 
-                 imputation = None, 
-                 normalize = True, 
-                 show_all = False, 
+                 weight = "weight_key_proportion1",
+                 imputation=None, 
+                 normalize=True, 
+                 show_all=False, 
                  **kwargs):
+        """
+        Initializes a new instance of the ADR class.
+        
+        Args:
+         - data (pd.DataFrame): The original dataset containing sensitive information.
+         - syn_data (pd.DataFrame): Synthetic data generated from the original data.
+         - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
+         - target (list[str] or str): Target column(s) containing sensitive information.
+         - risk (str): Risk function used for measuring ADR.
+         - weight (str): Weight function used for aggregating individual key risks.
+         - imputation (str, optional): Method for handling unmatched keys. 
+                                       Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
+         - normalize (bool, optional): Whether to normalize concentration-based weight functions.
+         - show_all (bool, optional): Whether to return individual key-level results.
+        
+        Kwargs:
+         - neighborhood (int): Number of neighbors to consider for 'appr' imputation (Default: 1).
+         - alpha (float): A positive value required for calculating 'KL_divergence' and 'wasserstein_distance' risk functions (Default: 1.0).
+         - positive_target_value: The specific target value required for 'precision' and 'recall'  risk functions, as well as the 'weight_precision' weight function. 
+                                  (Default: the least frequent target among all composite targets).
+        """
         
         self.data = data
         self.syn_data = syn_data
@@ -52,184 +49,159 @@ class ADR:
         self.normalize = normalize
         self.show_all = show_all
         self.configs = kwargs
-        
-        self.ADR_score = 0.0
-        self.score_df = []
 
-        allowed_risk_nms = ["inner_product_similarity", 
-                            "cosine_similarity", 
-                            "bhattacharyya_coefficient", 
-                            "total_variation", 
-                            "hellinger_distance", 
-                            "KL_divergence", 
-                            "JS_divergence", 
-                            "wasserstein_distance", 
-                            "accuracy", 
-                            "tcap_similarity", 
-                            "mode_similarity", 
-                            "precision", 
-                            "recall"]
-
-        allowed_weight_nms = ["weight_key_proportion1", 
-                              "weight_key_proportion2", 
-                              "weight_tcap", 
-                              "weight_precision", 
-                              "negentropy", 
-                              "gini_impurity"]
-
-        allowed_imputation_nms = [None, 
-                                  "zero_risk", 
-                                  "discard", 
-                                  "naive", 
-                                  "appr"]
-
-        if self.risk not in allowed_risk_nms:
-            raise ValueError(
-                f"Invalid risk: '{self.risk}'. "
-                f"You must choose one of {allowed_risk_nms}."
-            )
-
-        if self.weight not in allowed_weight_nms:
-            raise ValueError(
-                f"Invalid weight: '{self.weight}'. "
-                f"You must choose one of {allowed_weight_nms}."
-            )
-
-
-        if self.imputation not in allowed_imputation_nms:
-            raise ValueError(
-                f"Invalid risk_imputation: '{self.imputation}'. "
-                f"You must choose one of {allowed_imputation_nms}."
-            )
+        self.orig_cond_dist = None
+        self.syn_cond_dist = None
 
     
     def _precompute_global_stats(self):
         prob_col = 'imputed_prob' if self.imputation in ["naive", "appr"] else 'cond_prob'
         
-        self.deterministic_keys2 = self.syn_cond_dist.loc[self.syn_cond_dist[prob_col] == 1.0, 'composite_key'].tolist()
-        self.best_targets_df = self.syn_cond_dist.loc[self.syn_cond_dist.groupby("composite_key")[prob_col].idxmax(), ['composite_key', 'composite_target']]
+        self.p1_matrix_df = self.orig_cond_dist.pivot(index='composite_key', columns='composite_target', values='cond_prob').fillna(0)
+        self.p2_matrix_df = self.syn_cond_dist.pivot(index='composite_key', columns='composite_target', values=prob_col).fillna(0)
         
+        self.p1_matrix = self.p1_matrix_df.values
+        self.p2_matrix = self.p2_matrix_df.values
+        self.target_array = np.unique(self.orig_cond_dist['composite_target'])
+        self.target_to_idx = {name: i for i, name in enumerate(self.target_array)}
+        
+        self.mode1_vector = self.target_array[np.argmax(self.p1_matrix, axis=1)]
+        self.mode2_vector = self.target_array[np.argmax(self.p2_matrix, axis=1)]
+        
+        self.deterministic_keys2 = self.syn_cond_dist.loc[self.syn_cond_dist[prob_col] == 1.0, 'composite_key'].unique().tolist()
+        self.best_targets_df = pd.DataFrame({
+            'composite_key': self.p2_matrix_df.index, 
+            'composite_target': self.mode2_vector
+        })
+
+    def prepare_data(self, data1 = None, data2 = None):
+        current_data1 = data1 if data1 is not None else self.data
+        current_data2 = data2 if data2 is not None else self.syn_data
+        
+        cond_start = time.time()
+
+        self.orig_cond_dist, self.syn_cond_dist = compute_conditional_distributions(current_data1, 
+                                                                                    current_data2, 
+                                                                                    self.key, 
+                                                                                    self.target, 
+                                                                                    self.imputation, 
+                                                                                    **self.configs)
+        
+        cond_end = time.time()
+        self.cond_time = cond_end - cond_start
+        print(f"Conditional distributions computed successfully! (Elapsed time: {self.cond_time:.2f}s)")
+        print("-"*80)
+        
+        self._precompute_global_stats()
+
+
+        orig_key_counts = self.orig_cond_dist.groupby("composite_key")["count"].sum()
+        syn_key_counts = self.syn_cond_dist.groupby("composite_key")["count"].sum()
+
+        self.all_keys = self.p1_matrix_df.index.values
+        self.is_intersection = (orig_key_counts.reindex(self.all_keys, fill_value=0) > 0) & (syn_key_counts.reindex(self.all_keys, fill_value=0) > 0)
+        self.is_only_orig = (orig_key_counts.reindex(self.all_keys, fill_value=0) > 0) & (syn_key_counts.reindex(self.all_keys, fill_value=0) == 0)
+        self.is_only_syn = (orig_key_counts.reindex(self.all_keys, fill_value=0) == 0) & (syn_key_counts.reindex(self.all_keys, fill_value=0) > 0)
+        
+
     
-    def prepare_key_params(self, k):        
-        key_df1 = self.orig_cond_dist[self.orig_cond_dist.composite_key == k]
-        p1 = key_df1["cond_prob"]
-        mode1 = key_df1.loc[key_df1["cond_prob"].idxmax(), "composite_target"]
-      
-        key_df2 = self.syn_cond_dist[self.syn_cond_dist.composite_key == k]
-        prob_col = 'imputed_prob' if self.imputation in ["naive", "appr"] else 'cond_prob'
-        p2 = key_df2[prob_col]
-        mode2 = key_df2.loc[key_df2[prob_col].idxmax(), "composite_target"]
+    def calculate(self, data1 = None, data2 = None, risk = None, weight = None):
+        
+        """
+        Calculates the Attribute Disclosure Risk (ADR) score between two datasets.
+
+        Args:
+         - data1 (pd.DataFrame, optional): The reference dataset used as the baseline for risk assessment (e.g., the original data).
+         - data2 (pd.DataFrame, optional): The evaluation dataset to be assessed against the reference data (e.g., the synthetic data).
+         - risk (str, optional): The specific risk function to be applied for the calculation.
+         - weight (str, optional): The weight function used to compute the final aggregated ADR score.
+
+        Returns: 
+         - total_adr (float): The final aggregated Attribute Disclosure Risk value.
+         - score_df (pd.DataFrame, optional): Detailed results for each key.
+        
+        """
+        
+        current_data1 = data1 if data1 is not None else self.data
+        current_data2 = data2 if data2 is not None else self.syn_data
+
+        name1 = "original data"
+        name2 = "original data" if data2 is not None else "synthetic data"
+        
+        print(f"Computing conditional distributions for {name1} and {name2}...")
+        self.prepare_data(current_data1, current_data2)
+
+        print(f"Calculating ADR between {name1} and {name2}...")
+        start = time.time()
+        
+        current_risk = risk if risk else self.risk
+        current_weight = weight if weight else self.weight
+        
+        risk_func = getattr(rwf, current_risk)
+        weight_func = getattr(rwf, current_weight)
 
         params = {
-            "key": k,
-            "cond_dist1": self.orig_cond_dist, 
+            "p1": self.p1_matrix,
+            "p2": self.p2_matrix,
+            "mode1": self.mode1_vector,
+            "mode2": self.mode2_vector,
+            "target_to_idx": self.target_to_idx,
+            "cond_dist1": self.orig_cond_dist,
             "cond_dist2": self.syn_cond_dist,
-            "key_df1": key_df1,
-            "key_df2": key_df2,
-            "p1": p1,
-            "p2": p2,
-            "mode1": mode1,
-            "mode2": mode2, 
-            "deterministic_keys2": self.deterministic_keys2, 
+            "deterministic_keys2": self.deterministic_keys2,
             "best_targets_df": self.best_targets_df,
             "normalize": self.normalize,
             **self.configs
         }
 
-        return params
+        risk_vector = risk_func(**params)
+        weight_vector = weight_func(**params)
 
-   
-    def calculate(self):
-        self.orig_cond_dist, self.syn_cond_dist = compute_conditional_distributions(self.data, 
-                                                                                    self.syn_data, 
-                                                                                    self.key, 
-                                                                                    self.target, 
-                                                                                    self.imputation, 
-                                                                                    **self.configs)
-        self._precompute_global_stats()
-        
-        orig_key_counts = self.orig_cond_dist.groupby("composite_key")["count"].sum() 
-        syn_key_counts = self.syn_cond_dist.groupby("composite_key")["count"].sum()
+        # 1. Only Synthetic Keys
+        risk_vector[self.is_only_syn] = 0.0
 
-        intersection_keys = orig_key_counts[(orig_key_counts != 0) & (syn_key_counts != 0)].index.tolist()
-        only_orig_keys = orig_key_counts[syn_key_counts == 0].index.tolist()
-        only_syn_keys = syn_key_counts[orig_key_counts == 0].index.tolist()
-        
-        risk_func = getattr(rwf, self.risk)
-        weight_func = getattr(rwf, self.weight)
-
-        intersection_weight_sum = 0.0
-        
-        # -------------------------------------------------------------------------------------------------
-        # Intersection Keys
-        # -------------------------------------------------------------------------------------------------
-        for k in intersection_keys:
-            params = self.prepare_key_params(k)
-            
-            r_val = risk_func(**params)
-            w_val = weight_func(**params)
-            
-            score = r_val * w_val
-            self.ADR_score += score
-            intersection_weight_sum += w_val
-
-            if self.show_all:
-                self.score_df.append({"key": k, "score": score})
-
-        # -------------------------------------------------------------------------------------------------
-        # Synthetic-only Keys
-        # -------------------------------------------------------------------------------------------------
-        for key in only_syn_keys:
-            score = 0.0
-            self.ADR_score += score
-
-            if self.show_all:
-                self.score_df.append({"key": key, "score": self.score})
-
-        # -------------------------------------------------------------------------------------------------
-        # Original-only Keys
-        # -------------------------------------------------------------------------------------------------
+        # 2. Original-only Keys
         if self.imputation == "discard":
-            if intersection_weight_sum > 0:
-                self.ADR_score /= intersection_weight_sum
-                
-                if self.show_all:
-                    for res in self.score_df:
-                        res["score"] /= intersection_weight_sum
-                        
-                    for k in only_orig_keys:
-                        self.score_df.append({"key": k, "score": 0.0})
-            
-            else:
-                self.ADR_score = 0.0
-                if self.show_all:
-                    for res in self.score_df:
-                        res["score"] = 0.0
+            weight_vector[~self.is_intersection] = 0.0
+            w_sum = np.sum(weight_vector)
+            if w_sum > 0:
+                weight_vector /= w_sum
 
-        
         elif self.imputation == "zero_risk":
-            if self.show_all:
-                for k in only_orig_keys:
-                    self.score_df.append({"key": k, "score": 0.0})
-                    
-
-        else:
-            for k in only_orig_keys:
-                params = self.prepare_key_params(k)
-                
-                r_val = risk_func(**params)
-                w_val = weight_func(**params)
-                
-                score = r_val * w_val
-                self.ADR_score += score
-                
-                if self.show_all:
-                    self.score_df.append({"key": k, "score": score})
-
+            risk_vector[self.is_only_orig] = 0.0
+        
+        # 3. ADR Score = Sum(Risk * Weight)
+        final_scores = risk_vector * weight_vector
+        total_adr = np.sum(final_scores)
+        end = time.time()
+        print(f"ADR calculated successfully! (Elapsed time: {end - start:.2f}s)")
+        print("-"*80)
+        print(f"Total elapsed time: {self.cond_time +(end - start):.2f}s")
+        print("="*80)
 
         if self.show_all:
-            self.score_df = pd.DataFrame(self.score_df)
-            self.score_df = self.score_df.sort_values(by = "key", ascending = True).reset_index(drop = True)
-            return self.ADR_score, self.score_df
+            score_df = pd.DataFrame({"key": self.all_keys, "score": final_scores}).sort_values("key").reset_index(drop=True)
+            return total_adr, score_df
 
-        return self.ADR_score
+        return total_adr
+
+
+    def evaluate(self): 
+        
+        """
+        Evaluates Attribute Disclosure Risk (ADR) using two standardized metrics.
+
+        Returns:
+         - diff_adr (float): Differential ADR (DADR). The absolute reduction in disclosure risk achieved by replacing original data with synthetic data.
+         - adr_ratio (float): ADR Ratio (ADRR). The proportion of risk retained in the synthetic data relative to the original data.
+        """
+        
+        self.show_all = False
+
+        base_adr = self.calculate(self.data, self.data)
+        adr = self.calculate()
+        
+        diff_adr = base_adr - adr
+        adr_ratio = adr / base_adr
+
+        return diff_adr, adr_ratio
