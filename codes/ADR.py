@@ -118,8 +118,7 @@ class ADR:
 
         Returns: 
          - total_adr (float): The final aggregated Attribute Disclosure Risk value.
-         - score_df (pd.DataFrame, optional): Detailed results for each key.
-        
+         - score_df (pd.DataFrame, optional): Detailed results for each key.    
         """
         
         current_data1 = data1 if data1 is not None else self.data
