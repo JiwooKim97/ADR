@@ -10,8 +10,8 @@ def compute_conditional_distributions(data1, data2, key, target, k_uniques=None,
     denoted as $P(\text{TARGET} \mid \text{KEY})$, for both original and synthetic datasets.
     
     Args:
-     - data (pd.DataFrame): The original dataset containing sensitive information.
-     - syn_data (pd.DataFrame): Synthetic data generated from the original data. 
+     - data1 (pd.DataFrame): The baseline dataset used for computing the conditional distribution.
+     - data2 (pd.DataFrame): The dataset being evaluated or compared against the baseline.
      - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
      - target (list[str] or str): Target column(s) containing sensitive information.
      - imputation (str, optional): Method for handling unmatched keys. 
@@ -21,8 +21,8 @@ def compute_conditional_distributions(data1, data2, key, target, k_uniques=None,
      - neighborhood (int): Number of neighbors to consider for "neighborhood_appr" imputation (Default: 1).
     
     Returns:
-     - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset.
-     - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset. 
+     - cond_dist1 (pd.DataFrame): Conditional distribution of data1
+     - cond_dist2 (pd.DataFrame): Conditional distribution of data2. 
     """
     
     key_cols = [key] if isinstance(key, str) else list(key)
