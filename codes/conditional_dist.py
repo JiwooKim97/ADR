@@ -4,9 +4,7 @@ import numpy as np
 from scipy.spatial.distance import hamming
 from scipy.spatial.distance import cdist
 
-
-def compute_conditional_distributions(data, syn_data, key, target, imputation = None, **kwargs):
-    
+def compute_conditional_distributions(data1, data2, key, target, k_uniques=None, t_uniques=None, imputation=None, **kwargs):
     """
     Computes the conditional distribution of the target variables given key variables, 
     denoted as $P(\text{TARGET} \mid \text{KEY})$, for both original and synthetic datasets.
@@ -17,37 +15,43 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
      - key (list[str] or str): Column(s) used as conditioning variables (quasi-identifiers).
      - target (list[str] or str): Target column(s) containing sensitive information.
      - imputation (str, optional): Method for handling unmatched keys. 
-                                   Options: [None, 'zero_risk', 'discard', 'naive', 'appr'].
+                                   Options: ['constant_risk', 'exclusion', 'marginal', 'neighborhood_appr'].
     
     Kwargs:
-     - neighborhood (int): Number of neighbors to consider for "appr" imputation (Default: 1).
+     - neighborhood (int): Number of neighbors to consider for "neighborhood_appr" imputation (Default: 1).
     
     Returns:
      - cond_dist1 (pd.DataFrame): Conditional distribution of the original dataset.
      - cond_dist2 (pd.DataFrame): Conditional distribution of the synthetic dataset. 
     """
     
-    nrow1 = len(data)
-    concat_data = pd.concat([data, syn_data], axis = 0)
-
     key_cols = [key] if isinstance(key, str) else list(key)
     target_cols = [target] if isinstance(target, str) else list(target)
 
-    key_tuples = pd.MultiIndex.from_frame(concat_data[key_cols]).to_list()
-    target_tuples = pd.MultiIndex.from_frame(concat_data[target_cols]).to_list()
-
-    k_codes, k_uniques = pd.factorize(pd.Index(key_tuples), sort=True)
-    t_codes, t_uniques = pd.factorize(pd.Index(target_tuples), sort=True)
+    if k_uniques is None and t_uniques is None:
+        concat_data = pd.concat([data1, data2], axis=0)
+        key_tuples = pd.MultiIndex.from_frame(concat_data[key_cols]).to_list()
+        target_tuples = pd.MultiIndex.from_frame(concat_data[target_cols]).to_list()
+        _, k_uniques = pd.factorize(pd.Index(key_tuples), sort=True)
+        _, t_uniques = pd.factorize(pd.Index(target_tuples), sort=True)
 
     nK, nT = len(k_uniques), len(t_uniques)
+    
+    k_codes1 = k_uniques.get_indexer(pd.MultiIndex.from_frame(data1[key_cols]))
+    t_codes1 = t_uniques.get_indexer(pd.MultiIndex.from_frame(data1[target_cols]))
+    k_codes2 = k_uniques.get_indexer(pd.MultiIndex.from_frame(data2[key_cols]))
+    t_codes2 = t_uniques.get_indexer(pd.MultiIndex.from_frame(data2[target_cols]))
 
     counts1 = np.zeros((nK, nT), dtype=np.int64)
     counts2 = np.zeros((nK, nT), dtype=np.int64)
     result1 = np.zeros((nK, nT), dtype=np.float64)
     result2 = np.zeros((nK, nT), dtype=np.float64)
-     
-    np.add.at(counts1, (k_codes[:nrow1], t_codes[:nrow1]), 1)
-    np.add.at(counts2, (k_codes[nrow1:], t_codes[nrow1:]), 1)
+    
+    mask1 = (k_codes1 != -1) & (t_codes1 != -1)
+    mask2 = (k_codes2 != -1) & (t_codes2 != -1)
+    
+    np.add.at(counts1, (k_codes1[mask1], t_codes1[mask1]), 1)
+    np.add.at(counts2, (k_codes2[mask2], t_codes2[mask2]), 1)
 
     row_sums1 = counts1.sum(axis=1, keepdims=True)
     row_sums2 = counts2.sum(axis=1, keepdims=True)
@@ -58,7 +62,7 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
     cond_prob2 = np.divide(counts2, row_sums2, out = result2, where=row_sums2 != 0)
     
     def join_or_str(x):
-        return "_".join(map(str, x)) if isinstance(x, tuple) else str(x)
+        return "|".join(map(str, x)) if isinstance(x, tuple) else str(x)
 
     comp_keys = [join_or_str(u) for u in k_uniques]
     unmatched_keys = [comp_keys[i] for i in unmatched_keys_idx[0]] 
@@ -70,10 +74,10 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
     cond_dist1 = pd.DataFrame({"count": counts1.ravel(), "cond_prob": cond_prob1.ravel()}, index=all_idx).reset_index()
     cond_dist2 = pd.DataFrame({"count": counts2.ravel(), "cond_prob": cond_prob2.ravel()}, index=all_idx).reset_index()
 
-    if imputation in ["naive", "appr"]:
+    if imputation in ["marginal", "neighborhood_appr"]:
         cond_dist2["imputed_prob"] = cond_dist2["cond_prob"]
                 
-        if imputation == "naive":
+        if imputation == "marginal":
             total_count = cond_dist2["count"].sum()
             target_sums = cond_dist2.groupby("composite_target")["count"].transform("sum")
             naive_probs = target_sums / total_count
@@ -81,7 +85,7 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
             mask = cond_dist2["composite_key"].isin(unmatched_keys)
             cond_dist2.loc[mask, "imputed_prob"] = naive_probs[mask]         
 
-        elif imputation == "appr":
+        elif imputation == "neighborhood_appr":
             neighborhood = kwargs.get('neighborhood')
             
             if neighborhood is None:
@@ -95,7 +99,7 @@ def compute_conditional_distributions(data, syn_data, key, target, imputation = 
 
             
             unique_keys = cond_dist2["composite_key"].unique()
-            split_keys = np.array([k.split('_') for k in unique_keys])
+            split_keys = np.array([k.split('|') for k in unique_keys])
 
             encoded_keys = np.zeros(split_keys.shape, dtype=int)
             for col in range(split_keys.shape[1]):
