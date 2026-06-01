@@ -21,15 +21,16 @@ def bhattacharyya_coefficient(p1, p2, **kwargs):
     return np.sum(np.sqrt(p1 * p2), axis=1)
 
 
-def total_variation(p1, p2, **kwargs):
+def total_variation_similarity(p1, p2, **kwargs):
     return 1 - (0.5 * np.sum(np.abs(p1 - p2), axis=1))
 
 
-def hellinger_distance(p1, p2, **kwargs):
+def hellinger_similarity(p1, p2, **kwargs):
     sqrt_term = np.sqrt(0.5 * np.sum((np.sqrt(p1) - np.sqrt(p2))**2, axis=1))
     return 1 - sqrt_term
 
-def KL_divergence(p1, p2, **kwargs):
+
+def KL_similarity(p1, p2, **kwargs):
     alpha = kwargs.get('alpha')
     
     if alpha is None:
@@ -42,7 +43,8 @@ def KL_divergence(p1, p2, **kwargs):
     kl = np.sum(p1 * np.log((p1 + eps) / (p2 + eps)), axis=1)
     return np.exp(-alpha * kl)
 
-def JS_divergence(p1, p2, **kwargs):
+
+def JS_similarity(p1, p2, **kwargs):
     p3 = (p1 + p2) / 2
 
     eps = 1e-10
@@ -52,7 +54,8 @@ def JS_divergence(p1, p2, **kwargs):
     js = 0.5 * (kl_1 + kl_2)
     return 1 - (js / np.log(2))
 
-def wasserstein_distance(p1, p2, **kwargs):
+    
+def wasserstein_similarity(p1, p2, **kwargs):
     alpha = kwargs.get('alpha')
     if alpha is None:
         alpha = 1
@@ -77,19 +80,14 @@ def wasserstein_distance(p1, p2, **kwargs):
 # -------------------------------------------------------------------------------------------------
 # Prediction-Accuracy-Based Risk Functions
 # -------------------------------------------------------------------------------------------------
-def accuracy(p1, mode2, target_to_idx, **kwargs):
+def prediction_accuracy(p1, mode2, target_to_idx, **kwargs):
     n_keys = p1.shape[0]
     row_indices = np.arange(n_keys)
     col_indices = np.array([target_to_idx[m] for m in mode2])
     return p1[row_indices, col_indices]
 
 
-def tcap_similarity(p1, p2, **kwargs):
-    mask = (p2 == 1.0)
-    return np.sum(p1 * mask, axis=1)
-
-
-def mode_similarity(mode1, mode2, **kwargs):
+def mode_agreement(mode1, mode2, **kwargs):
     return (mode1 == mode2).astype(float)
 
 
@@ -104,8 +102,9 @@ def precision(p1, mode2, target_to_idx, cond_dist1, **kwargs):
         warnings.warn("For 'precision', a 'positive_target_value' was not provided. "
                       "Set the positive target as the least frequent among all composite targets.", 
                       stacklevel=2)
-
-    pos_idx = target_to_idx[pos_target]
+    
+    pos_target_str = str(pos_target)
+    pos_idx = target_to_idx[pos_target_str]
     p1_pos_probs = p1[:, pos_idx]
     
     mask = (mode2 == pos_target).astype(float)
@@ -136,75 +135,94 @@ def recall(p1, mode2, target_to_idx, cond_dist1, **kwargs):
         return numerator / denominator
 
 
+
+
+def _get_weight(values, filter_keys=None, normalize=True):
+    if filter_keys is not None:
+        values = values.copy()
+        values[~values.index.isin(filter_keys)] = 0.0
+        
+        if normalize:
+            total = values.sum()
+            return (values / total).values if total > 0 else np.zeros(len(values), dtype=float)
+        else:
+            return values.values
+    
+    if normalize:
+        total = values.sum()
+        return (values / total).values if total > 0 else np.zeros(len(values), dtype=float)
+    else:
+        return values.values
+            
 # -------------------------------------------------------------------------------------------------
 # Prevalence-Based Weights
 # -------------------------------------------------------------------------------------------------
-def weight_key_proportion1(cond_dist1, **kwargs):
-    key_counts = cond_dist1.groupby("composite_key")["count"].sum().values
-    total_counts = np.sum(key_counts)
+def OD_prevalence(cond_dist1, **kwargs):
+    deterministic_keys2 = kwargs.get('deterministic_keys2')
+    normalize = kwargs.get('normalize')
 
-    if total_counts == 0:
-        return np.zeros_like(key_counts, dtype=float)
+    key_stats = cond_dist1.groupby("composite_key")["count"].sum()
+    total_count = key_stats.sum()
+
+    if total_count > 0:
+        key_stats = key_stats / total_count
+    else:
+        key_stats = key_stats * 0.0
     
-    return key_counts / total_counts
+    return _get_weight(key_stats, filter_keys = deterministic_keys2, normalize = normalize)
 
 
-def weight_key_proportion2(cond_dist2, **kwargs):
-    key_counts = cond_dist2.groupby("composite_key")["count"].sum().values
-    total_counts = np.sum(key_counts)
+def SD_prevalence(cond_dist2, **kwargs):
+    deterministic_keys2 = kwargs.get('deterministic_keys2')
+    normalize = kwargs.get('normalize')
 
-    if total_counts == 0:
-        return np.zeros_like(key_counts, dtype=float)
-    
-    return key_counts / total_counts
-
-
-def weight_tcap(cond_dist2, deterministic_keys2, **kwargs):
     key_stats = cond_dist2.groupby("composite_key")["count"].sum()
+    total_count = key_stats.sum()
+
+    if total_count > 0:
+        key_stats = key_stats / total_count
+    else:
+        key_stats = key_stats * 0.0
     
-    if not deterministic_keys2:
-        return np.zeros(len(key_stats), dtype=float)
-
-    det_counts = key_stats.loc[deterministic_keys2]
-    total_det_counts = det_counts.sum()
-
-    if total_det_counts == 0:
-        return np.zeros(len(key_stats), dtype=float)
-
-    weights = (det_counts / total_det_counts).reindex(key_stats.index, fill_value=0.0)
+    return _get_weight(key_stats, filter_keys = deterministic_keys2, normalize = normalize)
     
-    return weights.values
 
-
-def weight_precision(cond_dist1, best_targets_df, **kwargs):
+def prediction_positive(cond_dist1, best_targets_df, **kwargs):
+    deterministic_keys2 = kwargs.get('deterministic_keys2')
+    normalize = kwargs.get('normalize')
     pos_target = kwargs.get('positive_target_value')
 
     if pos_target is None:
         pos_target = cond_dist1.groupby("composite_target")["count"].sum().idxmin()
-        warnings.warn("For 'weight_precision', a 'positive_target_value' was not provided.", stacklevel=2)
+        warnings.warn("For 'weight_precision', a 'positive_target_value' was not provided. "
+                      f"Using the least frequent target: {pos_target}", stacklevel=2)
 
     
     positive_keys = best_targets_df.loc[best_targets_df['composite_target'] == pos_target, 'composite_key'].unique()
     key_stats = cond_dist1.groupby("composite_key")["count"].sum()
+        
+    values = key_stats.copy()
+    values[~values.index.isin(positive_keys)] = 0
+    total_count = values.sum()
 
-    if len(positive_keys) == 0:
-        return np.zeros(len(key_stats), dtype=float)
+    if total_count > 0:
+        values = values / total_count
+    else:
+        values = values * 0.0
 
-    pos_key_counts = key_stats.loc[positive_keys]
-    total_pos_counts = pos_key_counts.sum()
-
-    if total_pos_counts == 0:
-        return np.zeros(len(key_stats), dtype=float)
-
-    weights = (pos_key_counts / total_pos_counts).reindex(key_stats.index, fill_value=0.0)
-
-    return weights.values
+    return _get_weight(values, filter_keys = deterministic_keys2, normalize = normalize)
     
 
 # -------------------------------------------------------------------------------------------------
 # Concentration-Based Weights
 # -------------------------------------------------------------------------------------------------
-def negentropy(p1, normalize, **kwargs):
+def negentropy_concentration(cond_dist1, p1, **kwargs):
+    # row_sums = np.sum(p1, axis=1, keepdims=True)
+    # p1 = np.divide(p1, row_sums, out=np.zeros_like(p1), where=row_sums != 0)
+
+    deterministic_keys2 = kwargs.get('deterministic_keys2')
+    normalize = kwargs.get('normalize')
+    
     mask = p1 > 0
     p1_safe = np.where(mask, p1, 1.0)
     h_matrix = -np.sum(np.where(mask, p1 * np.log2(p1_safe), 0.0), axis=1)
@@ -212,28 +230,21 @@ def negentropy(p1, normalize, **kwargs):
     k = p1.shape[1]
     h_uniform = np.log2(k)
 
-    negentropy_vector = h_uniform - h_matrix
+    negentropy_vector = 1- h_matrix / h_uniform 
+        
+    all_keys = cond_dist1.groupby("composite_key")["count"].sum().index
+    values = pd.Series(negentropy_vector, index = all_keys)
 
-    if normalize:
-        total_weights = np.sum(negentropy_vector)
-        
-        if total_weights == 0:
-            return np.zeros_like(negentropy_vector)
-        
-        return negentropy_vector / total_weights
+    return _get_weight(values, filter_keys = deterministic_keys2, normalize = normalize)
+
+
+def gini_concentration(cond_dist1, p1, **kwargs):
+    deterministic_keys2 = kwargs.get('deterministic_keys2')
+    normalize = kwargs.get('normalize')
     
-    return negentropy_vector
-
-
-def gini_impurity(p1, normalize, **kwargs):
     gini_vector = np.sum(p1**2, axis=1)
 
-    if normalize:
-        total_weights = np.sum(p1**2)
-        
-        if total_weights == 0:
-            return np.zeros_like(gini_vector)
-        
-        return gini_vector / total_weights
+    all_keys = cond_dist1.groupby("composite_key")["count"].sum().index
+    values = pd.Series(gini_vector, index = all_keys)
 
-    return gini_vector
+    return _get_weight(values, filter_keys = deterministic_keys2, normalize = normalize)
