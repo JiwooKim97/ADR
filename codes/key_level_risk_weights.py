@@ -4,11 +4,13 @@ import pandas as pd
 from scipy.stats import wasserstein_distance as w_dist
 
 
-# -------------------------------------------------------------------------------------------------
-# Similarity-Based Risk Functions
-# -------------------------------------------------------------------------------------------------
+# =================================================================================================
+# Similarity-Based Risk Measures
+# =================================================================================================
+
 def inner_product_similarity(p1, p2, **kwargs):
     return np.sum(p1 * p2, axis=1)
+
 
 
 def cosine_similarity(p1, p2, **kwargs):
@@ -17,12 +19,15 @@ def cosine_similarity(p1, p2, **kwargs):
     return np.divide(numerator, denom, out=np.zeros_like(numerator), where=denom != 0)
 
 
+
 def bhattacharyya_coefficient(p1, p2, **kwargs):
     return np.sum(np.sqrt(p1 * p2), axis=1)
 
 
+
 def total_variation_similarity(p1, p2, **kwargs):
     return 1 - (0.5 * np.sum(np.abs(p1 - p2), axis=1))
+
 
 
 def hellinger_similarity(p1, p2, **kwargs):
@@ -30,18 +35,22 @@ def hellinger_similarity(p1, p2, **kwargs):
     return 1 - sqrt_term
 
 
+
 def KL_similarity(p1, p2, **kwargs):
     alpha = kwargs.get('alpha')
     
     if alpha is None:
         alpha = 1
-        warnings.warn("For 'KL_divergence', a 'alpha' value was not provided. " 
-                      "Using default value of 1.", 
-                      stacklevel = 2)
+        warnings.warn(
+            "For 'KL_divergence', a 'alpha' value was not provided. " 
+            "Using default value of 1.", 
+            stacklevel = 2
+        )
         
     eps = 1e-10
     kl = np.sum(p1 * np.log((p1 + eps) / (p2 + eps)), axis=1)
     return np.exp(-alpha * kl)
+
 
 
 def JS_similarity(p1, p2, **kwargs):
@@ -54,13 +63,19 @@ def JS_similarity(p1, p2, **kwargs):
     js = 0.5 * (kl_1 + kl_2)
     return 1 - (js / np.log(2))
 
-    
+
+
+# 범주형버전 target_values / 수치형이면 원본 데이터 값 넣어주어야 함
 def wasserstein_similarity(p1, p2, **kwargs):
     alpha = kwargs.get('alpha')
+    
     if alpha is None:
         alpha = 1
-        warnings.warn("For 'wasserstein_distance', a 'alpha' value was not provided. "
-                      "Using default value of 1.", stacklevel=2)
+        warnings.warn(
+            "For 'wasserstein_distance', a 'alpha' value was not provided. "
+            "Using default value of 1.", 
+            stacklevel=2
+        )
     
     n_keys = p1.shape[0]
     w_distances = np.zeros(n_keys)
@@ -72,36 +87,52 @@ def wasserstein_similarity(p1, p2, **kwargs):
     valid_indices = np.where((sum1 > 0) & (sum2 > 0))[0]
     
     for i in valid_indices:
-        w_distances[i] = w_dist(target_values, target_values, p1[i], p2[i])
+        w_distances[i] = w_dist(
+            target_values, 
+            target_values, 
+            p1[i], 
+            p2[i]
+        )
         
     return np.exp(-alpha * w_distances)
 
 
-# -------------------------------------------------------------------------------------------------
-# Prediction-Accuracy-Based Risk Functions
-# -------------------------------------------------------------------------------------------------
+
+
+# =================================================================================================
+# Prediction-Accuracy-Based Risk Measures
+# =================================================================================================
+
 def prediction_accuracy(p1, mode2, target_to_idx, **kwargs):
     n_keys = p1.shape[0]
+    
     row_indices = np.arange(n_keys)
     col_indices = np.array([target_to_idx[m] for m in mode2])
+    
     return p1[row_indices, col_indices]
 
 
+    
 def mode_agreement(mode1, mode2, **kwargs):
     return (mode1 == mode2).astype(float)
 
 
-# -------------------------------------------------------------------------------------------------
-# Task-Oriented Risk Functions
-# -------------------------------------------------------------------------------------------------
+
+
+# =================================================================================================
+# Task-Oriented Risk Measures
+# =================================================================================================
+
 def precision(p1, mode2, target_to_idx, cond_dist1, **kwargs):
     pos_target = kwargs.get('positive_target_value')
 
     if pos_target is None:
         pos_target = cond_dist1.groupby("composite_target")["count"].sum().idxmin()
-        warnings.warn("For 'precision', a 'positive_target_value' was not provided. "
-                      "Set the positive target as the least frequent among all composite targets.", 
-                      stacklevel=2)
+        warnings.warn(
+            "For 'precision', a 'positive_target_value' was not provided. "
+            "Set the positive target as the least frequent among all composite targets.", 
+            stacklevel=2
+        )
     
     pos_target_str = str(pos_target)
     pos_idx = target_to_idx[pos_target_str]
@@ -111,19 +142,20 @@ def precision(p1, mode2, target_to_idx, cond_dist1, **kwargs):
     return p1_pos_probs * mask
 
 
+    
 def recall(p1, mode2, target_to_idx, cond_dist1, **kwargs):
     pos_target = kwargs.get('positive_target_value')
 
     if pos_target is None:
         pos_target = cond_dist1.groupby("composite_target")["count"].sum().idxmin()
-        warnings.warn("For 'recall', a 'positive_target_value' was not provided. "
-                      "Set the positive target as the least frequent among all composite targets.", 
-                      stacklevel=2)
+        warnings.warn(
+            "For 'recall', a 'positive_target_value' was not provided. "
+            "Set the positive target as the least frequent among all composite targets.", 
+            stacklevel=2)
 
     pos_idx = target_to_idx[pos_target]
     numerator = p1[:, pos_idx] * (mode2 == pos_target).astype(float)
     
-
     total_count = cond_dist1["count"].sum()
     pos_target_count = cond_dist1.loc[cond_dist1["composite_target"] == pos_target, "count"].sum()
     
@@ -153,10 +185,14 @@ def _get_weight(values, filter_keys=None, normalize=True):
         return (values / total).values if total > 0 else np.zeros(len(values), dtype=float)
     else:
         return values.values
-            
-# -------------------------------------------------------------------------------------------------
+
+
+
+
+# =================================================================================================
 # Prevalence-Based Weights
-# -------------------------------------------------------------------------------------------------
+# =================================================================================================
+
 def OD_prevalence(cond_dist1, **kwargs):
     deterministic_keys2 = kwargs.get('deterministic_keys2')
     normalize = kwargs.get('normalize')
@@ -169,7 +205,12 @@ def OD_prevalence(cond_dist1, **kwargs):
     else:
         key_stats = key_stats * 0.0
     
-    return _get_weight(key_stats, filter_keys = deterministic_keys2, normalize = normalize)
+    return _get_weight(
+        key_stats, 
+        filter_keys = deterministic_keys2, 
+        normalize = normalize
+    )
+
 
 
 def SD_prevalence(cond_dist2, **kwargs):
@@ -184,8 +225,13 @@ def SD_prevalence(cond_dist2, **kwargs):
     else:
         key_stats = key_stats * 0.0
     
-    return _get_weight(key_stats, filter_keys = deterministic_keys2, normalize = normalize)
+    return _get_weight(
+        key_stats, 
+        filter_keys = deterministic_keys2, 
+        normalize = normalize
+    )
     
+
 
 def prediction_positive(cond_dist1, best_targets_df, **kwargs):
     deterministic_keys2 = kwargs.get('deterministic_keys2')
@@ -194,8 +240,11 @@ def prediction_positive(cond_dist1, best_targets_df, **kwargs):
 
     if pos_target is None:
         pos_target = cond_dist1.groupby("composite_target")["count"].sum().idxmin()
-        warnings.warn("For 'weight_precision', a 'positive_target_value' was not provided. "
-                      f"Using the least frequent target: {pos_target}", stacklevel=2)
+        warnings.warn(
+            "For 'weight_precision', a 'positive_target_value' was not provided. "
+            f"Using the least frequent target: {pos_target}", 
+            stacklevel=2
+        )
 
     
     positive_keys = best_targets_df.loc[best_targets_df['composite_target'] == pos_target, 'composite_key'].unique()
@@ -210,22 +259,29 @@ def prediction_positive(cond_dist1, best_targets_df, **kwargs):
     else:
         values = values * 0.0
 
-    return _get_weight(values, filter_keys = deterministic_keys2, normalize = normalize)
+    return _get_weight(
+        values, 
+        filter_keys = deterministic_keys2, 
+        normalize = normalize
+    )
     
 
-# -------------------------------------------------------------------------------------------------
-# Concentration-Based Weights
-# -------------------------------------------------------------------------------------------------
-def negentropy_concentration(cond_dist1, p1, **kwargs):
-    # row_sums = np.sum(p1, axis=1, keepdims=True)
-    # p1 = np.divide(p1, row_sums, out=np.zeros_like(p1), where=row_sums != 0)
 
+
+# =================================================================================================
+# Concentration-Based Weights
+# =================================================================================================
+
+def negentropy_concentration(cond_dist1, p1, **kwargs):
     deterministic_keys2 = kwargs.get('deterministic_keys2')
     normalize = kwargs.get('normalize')
     
     mask = p1 > 0
     p1_safe = np.where(mask, p1, 1.0)
-    h_matrix = -np.sum(np.where(mask, p1 * np.log2(p1_safe), 0.0), axis=1)
+    h_matrix = -np.sum(
+        np.where(mask, p1 * np.log2(p1_safe), 0.0), 
+        axis=1
+    )
 
     k = p1.shape[1]
     h_uniform = np.log2(k)
@@ -235,7 +291,12 @@ def negentropy_concentration(cond_dist1, p1, **kwargs):
     all_keys = cond_dist1.groupby("composite_key")["count"].sum().index
     values = pd.Series(negentropy_vector, index = all_keys)
 
-    return _get_weight(values, filter_keys = deterministic_keys2, normalize = normalize)
+    return _get_weight(
+        values, 
+        filter_keys = deterministic_keys2, 
+        normalize = normalize
+    )
+
 
 
 def gini_concentration(cond_dist1, p1, **kwargs):
@@ -247,4 +308,8 @@ def gini_concentration(cond_dist1, p1, **kwargs):
     all_keys = cond_dist1.groupby("composite_key")["count"].sum().index
     values = pd.Series(gini_vector, index = all_keys)
 
-    return _get_weight(values, filter_keys = deterministic_keys2, normalize = normalize)
+    return _get_weight(
+        values, 
+        filter_keys = deterministic_keys2, 
+        normalize = normalize
+    )
