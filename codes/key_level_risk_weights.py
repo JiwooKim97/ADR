@@ -65,7 +65,6 @@ def JS_similarity(p1, p2, **kwargs):
 
 
 
-# 범주형버전 target_values / 수치형이면 원본 데이터 값 넣어주어야 함
 def wasserstein_similarity(p1, p2, **kwargs):
     alpha = kwargs.get('alpha')
     
