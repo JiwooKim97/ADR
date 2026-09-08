@@ -20,7 +20,7 @@ class ADR_Measure:
         imputation="constant_risk",
         use_deterministic = False,
         normalize=True, 
-        show_all=False, 
+        return_score_df=False, 
         **kwargs
     ):
 
@@ -60,7 +60,7 @@ class ADR_Measure:
             normalize (bool, optional):
                 Whether to renormalize weights after restricting them to deterministic keys.
 
-            show_all (bool, optional):
+            return_score_df (bool, optional):
                 Whether to return key-level risk measure, weight, and score values.
 
         Keyword Args:
@@ -85,12 +85,12 @@ class ADR_Measure:
         self.syn_data = syn_data
         self.key = key
         self.target = target
-        self.risk_measure = risk
+        self.risk_measure = risk_measure
         self.weight = weight
         self.imputation = imputation
         self.use_deterministic = use_deterministic
         self.normalize = normalize
-        self.show_all = show_all
+        self.return_score_df = return_score_df
         self.configs = kwargs
 
         self.orig_cond_dist = None
@@ -267,42 +267,42 @@ class ADR_Measure:
     # ADR Score Calculation
     # =============================================================================================
     
-    def calculate(
+    def _calculate_single(
         self, 
         data1 = None, 
-        data2 = None, 
-        risk_measure = None, 
-        weight = None, 
-        marginal_reference = False
+        data2 = None,  
+        marginal_reference = False,
+        return_score_df=False
     ):
-        
+            
         """
-        Calculate the Attribute Disclosure Risk Score.
-
+        Calculate a single Attribute Disclosure Risk (ADR) score.
+        
         Args:
             data1 (pd.DataFrame, optional):
                 Reference dataset used as the baseline.
-
+                If None, the original dataset is used.
+        
             data2 (pd.DataFrame, optional):
                 Dataset evaluated against the reference dataset.
-
-            risk_measure (str, optional):
-                Key-level risk measure.
-
-            weight (str, optional):
-                Key-level weighting function.
-
+                If None, the synthetic dataset is used.
+        
             marginal_reference (bool, optional):
-                Whether to replace the original conditional target
-                distribution with the marginal target distribution.
-
+                Whether to use the marginal target distribution of the reference
+                dataset instead of its conditional target distribution.
+        
+            return_score_df (bool, optional):
+                Whether to return key-level risk, weight, and ADR contribution
+                values together with the aggregated ADR score.
+        
         Returns:
-            total_adr (float):
+            total_adr_score (float):
                 Aggregated ADR score.
-
+        
             score_df (pd.DataFrame, optional):
-                Key-level risk, weight, and ADR score contribution.
-                Returned only when show_all=True.
+                Key-level results containing the key, risk measure, weight,
+                and ADR contribution.
+                Returned only when return_score_df=True.
         """
         
         current_data1 = data1 if data1 is not None else self.data
@@ -315,11 +315,8 @@ class ADR_Measure:
 
         start = time.time()
         
-        current_risk = risk_measure if risk_measure else self.risk_measure
-        current_weight = weight if weight else self.weight
-        
-        risk_func = getattr(klrw, current_risk)
-        weight_func = getattr(klrw, current_weight)
+        risk_func = getattr(klrw, self.risk_measure)
+        weight_func = getattr(klrw, self.weight)
 
         self.disclosive_keys = (
             self.deterministic_keys2 
@@ -347,12 +344,14 @@ class ADR_Measure:
         # -----------------------------------------------------------------------------------------
         # 1. Synthetic-only keys
         # -----------------------------------------------------------------------------------------
+        
         risk_vector[self.is_only_syn] = 0.0
 
         
         # -----------------------------------------------------------------------------------------
         # 2. Original-only keys
         # -----------------------------------------------------------------------------------------
+        
         if self.imputation == "exclusion":
             weight_vector[~self.is_intersection] = 0.0
             
@@ -378,6 +377,7 @@ class ADR_Measure:
         # -----------------------------------------------------------------------------------------
         # 3. Aggregate key-level ADR Score
         # -----------------------------------------------------------------------------------------
+        
         final_scores = risk_vector * weight_vector
         
         total_adr_score = np.sum(final_scores)
@@ -385,7 +385,7 @@ class ADR_Measure:
         end = time.time()
 
 
-        if self.show_all:
+        if self.return_score_df:
             score_df = pd.DataFrame({
                 "key": self.all_keys, 
                 "risk_measure": risk_vector, 
@@ -401,3 +401,54 @@ class ADR_Measure:
             return total_adr_score, score_df
 
         return total_adr_score
+
+
+    def calculate(
+        self,
+        marginal_reference=False
+    ):
+        
+    """
+    Calculate ADR(O, O) and ADR(O, S).
+    
+    Args:
+        marginal_reference (bool, optional):
+            Whether to use the marginal target distribution of the reference
+            dataset instead of its conditional target distribution.
+    
+    Returns:
+        adr_oo (float):
+            ADR score computed between the original dataset and itself.
+    
+        adr_os (float):
+            ADR score computed between the original and synthetic datasets.
+    
+        score_df (pd.DataFrame):
+            Key-level results for the original-versus-synthetic comparison,
+            containing the key, risk measure, weight, and ADR contribution.
+    """
+
+    # -----------------------------------------------------------------------------------------
+    # 1. ADR(O, O)
+    # -----------------------------------------------------------------------------------------
+
+    adr_oo = self._calculate_single(
+        data1=self.data,
+        data2=self.data,
+        marginal_reference=marginal_reference,
+        return_score_df=False
+    )
+
+
+    # -----------------------------------------------------------------------------------------
+    # 2. ADR(O, S) and Key-Level Results
+    # -----------------------------------------------------------------------------------------
+
+    adr_os, score_df = self._calculate_single(
+        data1=self.data,
+        data2=self.syn_data,
+        marginal_reference=marginal_reference,
+        return_score_df=True
+    )
+
+    return adr_oo, adr_os, score_df
