@@ -1,0 +1,179 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+# =================================================================================================
+# Contribution Summary
+# =================================================================================================
+
+def get_contribution_summary(adr_oo, adr_os, score_df):
+    contributions = score_df["score"]
+
+    q50 = contributions.quantile(0.50)
+    q90 = contributions.quantile(0.90)
+
+    top10_mask = contributions >= q90
+    top10_contribution = contributions[top10_mask].sum()
+
+    top10_share = (
+        top10_contribution / adr_os
+        if adr_os > 0
+        else 0.0
+    )
+
+    summary = {
+        "adr_oo": adr_oo,
+        "adr_os": adr_os,
+        "dadr": adr_os - adr_oo,
+        "median_contribution": q50,
+        "q90_contribution": q90,
+        "top10_contribution": top10_contribution,
+        "top10_share": top10_share
+    }
+
+    return summary
+
+
+# =================================================================================================
+# Screening Keys
+# =================================================================================================
+
+def get_screening_keys(score_df, quantile=0.90):
+    threshold = score_df["score"].quantile(quantile)
+
+    screening_df = (
+        score_df.loc[
+            score_df["score"] >= threshold,
+            ["key", "risk_measure", "weight", "score"]
+        ]
+        .sort_values("score", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    return screening_df
+
+
+# =================================================================================================
+# Highest-Risk Keys
+# =================================================================================================
+
+def get_top_risk_keys(score_df, n=10):
+    top_risk_df = (
+        score_df
+        .sort_values("risk_measure", ascending=False)
+        .head(n)
+        [["key", "risk_measure", "weight", "score"]]
+        .reset_index(drop=True)
+    )
+
+    return top_risk_df
+
+
+# =================================================================================================
+# Highest-Contribution Keys
+# =================================================================================================
+
+def get_top_contribution_keys(score_df, n=10):
+    top_contribution_df = (
+        score_df
+        .sort_values("score", ascending=False)
+        .head(n)
+        [["key", "risk_measure", "weight", "score"]]
+        .reset_index(drop=True)
+    )
+
+    return top_contribution_df
+
+
+# =================================================================================================
+# Weight-Risk Diagnostic Plot
+# =================================================================================================
+
+def plot_weight_risk(score_df, adr_os, quantile=0.90):
+    plot_df = score_df.copy()
+
+    q50 = plot_df["score"].quantile(0.50)
+    q_threshold = plot_df["score"].quantile(quantile)
+
+    screening_mask = plot_df["score"] >= q_threshold
+
+    other_df = plot_df[~screening_mask]
+    screening_df = plot_df[screening_mask]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Other keys
+    ax.scatter(
+        other_df["weight"],
+        other_df["risk_measure"],
+        alpha=0.6,
+        label="Other keys"
+    )
+
+    # High-contribution keys
+    ax.scatter(
+        screening_df["weight"],
+        screening_df["risk_measure"],
+        marker="^",
+        s=80,
+        label=f"Top {(1 - quantile) * 100:.0f}% by contribution"
+    )
+
+    # ---------------------------------------------------------------------------------------------
+    # Equal-Contribution Curves
+    # ---------------------------------------------------------------------------------------------
+
+    positive_weights = plot_df.loc[
+        plot_df["weight"] > 0,
+        "weight"
+    ]
+
+    if len(positive_weights) > 0:
+        x_curve = np.linspace(
+            positive_weights.min(),
+            positive_weights.max(),
+            500
+        )
+
+        median_curve = q50 / x_curve
+        threshold_curve = q_threshold / x_curve
+
+        ax.plot(
+            x_curve,
+            median_curve,
+            "--",
+            linewidth=1.5,
+            label="Median contribution"
+        )
+
+        ax.plot(
+            x_curve,
+            threshold_curve,
+            "--",
+            linewidth=2.0,
+            label=f"{quantile:.0%} contribution threshold"
+        )
+
+    # ---------------------------------------------------------------------------------------------
+    # Annotate Screening Keys
+    # ---------------------------------------------------------------------------------------------
+
+    for _, row in screening_df.iterrows():
+        ax.annotate(
+            str(row["key"]),
+            (row["weight"], row["risk_measure"]),
+            xytext=(5, 5),
+            textcoords="offset points",
+            fontsize=9
+        )
+
+    ax.set_xlabel("Key Weight")
+    ax.set_ylabel("Key-Level Risk Measure")
+    ax.set_title(f"Key-Level Weight-Risk Diagnostic (ADR(O,S) = {adr_os:.4f})")
+
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
